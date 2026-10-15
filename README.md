@@ -32,7 +32,12 @@ flutter build apk --debug    # build/app/outputs/flutter-apk/app-debug.apk
 
 ## 서버 연결
 
-1. PC에서 서버 실행 (중앙 서버, 또는 테스트용 목 서버):
+1. PC에서 중앙 서버 실행 (`PiSensorServer/central`):
+   ```bash
+   cd PiSensorServer
+   python -m uvicorn central.main:app --host 0.0.0.0 --port 8100
+   ```
+   중앙 서버 없이 앱만 확인할 때는 테스트용 목 서버를 쓴다:
    ```bash
    cd tools && python -m venv .venv && .venv/Scripts/pip install fastapi "uvicorn[standard]"
    .venv/Scripts/python mock_server.py      # 0.0.0.0:8100
@@ -43,6 +48,32 @@ flutter build apk --debug    # build/app/outputs/flutter-apk/app-debug.apk
 3. 서버에 `API_KEY` 가 있으면 같은 값을 API 키 칸에 넣는다. HTTP와 두 WebSocket 모두 `X-API-Key` 헤더로 보낸다 (쿼리스트링 아님).
 
 연결 실패 시 3초마다 재시도한다 (앱이 포그라운드에 있을 때만). 상태 문구를 누르면 즉시 재연결.
+
+## 상태 확인 (중앙 서버)
+
+```bash
+curl http://127.0.0.1:8100/status                        # phones.phone1: 연결, status, last_track, video
+curl http://127.0.0.1:8100/phone/phone1/frame -o f.jpg   # 마지막 카메라 프레임
+```
+
+브라우저에서 `http://127.0.0.1:8100/docs` → 엔드포인트 선택 → **Try it out** → **Execute**.
+
+| 엔드포인트 | 확인 내용 |
+| --- | --- |
+| `GET /status` | 폰 연결 여부, 마지막 `status`, `last_track` |
+| `POST /phone/{device_id}/expression` | `{"value": "danger"}` → 폰 표정이 즉시 바뀜 |
+| `POST /phone/{device_id}/track` | `{"action": "start", "target": "face"}` / `"stop"` |
+| `GET /phone/{device_id}/frame` | 마지막 JPEG (앱에서 `영상 전송`을 켜야 함) |
+
+서버에 `API_KEY` 가 설정돼 있으면 각 엔드포인트의 `x-api-key` 칸에 넣는다.
+
+에뮬레이터로 테스트할 때:
+```bash
+D:\Android\Sdk\emulator\emulator.exe -avd Pixel_10 -camera-front emulated
+flutter run -d emulator-5554     # 앱 서버 주소: http://10.0.2.2:8100
+```
+
+`test/protocol_test.dart` 는 목 서버 전용 필드(`phones`, `frames`)를 확인하므로 목 서버에서만 돌린다.
 
 ## 화면
 
