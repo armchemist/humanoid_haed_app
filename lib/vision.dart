@@ -11,10 +11,8 @@ import 'server_connection.dart';
 /// (세로/가로 회전 보정됨, 좌우 미러 아님). 화면에 그릴 때만 미러링한다.
 typedef FaceBox = ({int? id, Rect box});
 
-const _sendIntervalMs = 500; // 영상 전송 2 FPS
 const _detectIntervalMs = 150; // 얼굴 검출 최대 ~6 FPS
-const _jpegMaxSide = 640;
-const _jpegQuality = 70;
+// 영상 전송 FPS·크기·품질은 Server 의 설정(videoFps, videoMaxSide, videoQuality)을 쓴다.
 
 /// 전면 카메라 하나를 열어 두고, 같은 프레임 스트림으로 얼굴 검출과 영상 전송을 한다.
 /// 카메라는 필요할 때만 연다: 카메라 화면이 열렸거나, 추적 중이거나, 영상 전송 중.
@@ -74,7 +72,8 @@ class Vision {
       final front = (await availableCameras()).where((d) => d.lensDirection == CameraLensDirection.front);
       if (front.isEmpty) throw '전면 카메라를 찾을 수 없습니다';
       // 권한 요청은 initialize() 안에서 플러그인이 한다.
-      c = CameraController(front.first, ResolutionPreset.medium,
+      // 20mm ArUco 마커를 멀리서 읽어야 하면 설정에서 고해상도를 켠다.
+      c = CameraController(front.first, server.videoHighRes ? ResolutionPreset.high : ResolutionPreset.medium,
           enableAudio: false, imageFormatGroup: ImageFormatGroup.nv21);
       await c.initialize();
       await c.startImageStream(_onFrame);
@@ -137,7 +136,7 @@ class Vision {
     }
     if (server.videoOn.value &&
         !_encoding &&
-        now.difference(_lastSend).inMilliseconds >= _sendIntervalMs) {
+        now.difference(_lastSend).inMilliseconds >= 1000 ~/ server.videoFps) {
       _encoding = true;
       _lastSend = now;
       _encodeAndSend(nv21, img.width, img.height, rot).whenComplete(() => _encoding = false);
@@ -159,8 +158,8 @@ class Vision {
         'width': w,
         'height': h,
         'rotation': rot,
-        'maxSide': _jpegMaxSide,
-        'quality': _jpegQuality,
+        'maxSide': server.videoMaxSide,
+        'quality': server.videoQuality,
       });
       if (jpeg != null && server.videoOn.value) {
         server.sendFrame(jpeg);
