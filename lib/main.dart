@@ -7,8 +7,10 @@ import 'vision.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  // 로봇 얼굴이므로 상태바/내비게이션바를 숨긴다. 세로·가로 모두 허용.
-  SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+  // 로봇 얼굴이므로 가로 전용, 상태바/내비게이션바를 숨긴다.
+  await SystemChrome.setPreferredOrientations(
+      [DeviceOrientation.landscapeLeft, DeviceOrientation.landscapeRight]);
+  await SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
   final server = Server();
   await server.loadSettings();
   runApp(HeadApp(server: server, vision: Vision(server)));
