@@ -12,9 +12,9 @@ void main() {
     final s = Server()..connected.value = true;
     for (final (e, want) in [
       ('idle', RobotState.normal),
-      ('thinking', RobotState.normal),
-      ('working', RobotState.normal),
-      ('done', RobotState.normal),
+      ('thinking', RobotState.thinking),
+      ('working', RobotState.working),
+      ('done', RobotState.done),
       ('danger', RobotState.danger),
       ('error', RobotState.caution),
     ]) {
@@ -42,9 +42,11 @@ void main() {
     await tester.tapAt(const Offset(400, 180)); // 테스트는 디버그 모드
     await tester.pump(const Duration(milliseconds: 400));
     expect(face.value, RobotState.sleep);
-    await tester.tapAt(const Offset(400, 180));
-    await tester.pump(const Duration(milliseconds: 400));
-    expect(face.value, RobotState.normal);
+    for (final want in [RobotState.thinking, RobotState.working, RobotState.done, RobotState.normal]) {
+      await tester.tapAt(const Offset(400, 180));
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(face.value, want);
+    }
     expect(tester.takeException(), isNull);
   });
 }

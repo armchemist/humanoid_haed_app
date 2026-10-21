@@ -47,7 +47,7 @@ class _FaceScreenState extends State<FaceScreen> {
           child: GestureDetector(
             behavior: HitTestBehavior.opaque,
             onLongPress: _openTestPanel,
-            // 디버그 빌드에서만: 탭하면 normal → caution → danger → sleep 순환
+            // 디버그 빌드에서만: 탭하면 RobotState 순서대로 순환
             onTap: kDebugMode
                 ? () => _face.setState(RobotState.values[(_face.value.index + 1) % RobotState.values.length])
                 : null,
@@ -139,11 +139,14 @@ String displayedState(Server s) {
   return s.status.value.startsWith('연결 중') ? 'idle' : 'error';
 }
 
-/// 서버 표정 6종을 얼굴 상태 4종으로 묶는다. sleep 은 아직 서버에서 오지 않는다.
+/// 서버 표정 6종을 얼굴 상태로 옮긴다. sleep 은 아직 서버에서 오지 않는다.
 RobotState robotState(Server s) => switch (displayedState(s)) {
       'danger' => RobotState.danger,
       'error' => RobotState.caution,
-      _ => RobotState.normal, // idle, thinking, working, done
+      'thinking' => RobotState.thinking,
+      'working' => RobotState.working,
+      'done' => RobotState.done,
+      _ => RobotState.normal, // idle
     };
 
 String displayedMessage(Server s) {
