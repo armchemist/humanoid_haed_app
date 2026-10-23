@@ -95,7 +95,7 @@ class _CameraScreenState extends State<CameraScreen> {
                 Text(
                   '${v.stats.value}\n얼굴 ${v.faces.value.length}개 · '
                   '${s.tracking.value ? '추적 대상 id=${v.selected.value ?? '없음 (얼굴을 탭)'}' : '추적 꺼짐'}'
-                  '${s.aruco.value ? ' · 마커 ${v.markers.value.isEmpty ? '없음' : v.markers.value.map((m) => '#${m.id} ${m.sidePx.round()}px').join(', ')}' : ''}',
+                  '${s.aruco.value ? ' · 마커 ${v.markers.value.isEmpty ? '없음' : 'OK'}' : ''}',
                   style: const TextStyle(color: Colors.white, fontSize: 12, shadows: [Shadow(blurRadius: 3)]),
                 ),
                 const SizedBox(height: 6),
@@ -164,12 +164,11 @@ class _BoxPainter extends CustomPainter {
           Paint()
             ..style = PaintingStyle.stroke
             ..strokeWidth = 3
-            ..color = Colors.amberAccent);
-      canvas.drawCircle(pts.first, 4, Paint()..color = Colors.amberAccent); // 마커 왼쪽 위 모서리
+            ..color = Colors.greenAccent);
+      // ID 는 보이지 않고 인식 여부만 보인다
       TextPainter(
-        text: TextSpan(
-            text: '#${m.id}',
-            style: const TextStyle(color: Colors.amberAccent, fontSize: 16, fontWeight: FontWeight.bold)),
+        text: const TextSpan(
+            text: 'OK', style: TextStyle(color: Colors.greenAccent, fontSize: 16, fontWeight: FontWeight.bold)),
         textDirection: TextDirection.ltr,
       )
         ..layout()
