@@ -1,11 +1,12 @@
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 
+import 'aruco.dart';
 import 'face_screen.dart';
 import 'server_connection.dart';
 import 'vision.dart';
 
-/// 전면 카메라 프리뷰 + 얼굴 박스 + 영상 전송/추적 토글.
+/// 전면 카메라 프리뷰 + 얼굴 박스 + ArUco 마커 + 영상 전송/추적/마커 인식 토글.
 /// 얼굴을 탭하면 추적 대상으로 선택된다.
 class CameraScreen extends StatefulWidget {
   const CameraScreen({super.key, required this.server, required this.vision});
@@ -59,10 +60,10 @@ class _CameraScreenState extends State<CameraScreen> {
                       onTapUp: (d) => v.selectAt(Offset(
                           d.localPosition.dx / box.maxWidth, d.localPosition.dy / box.maxHeight)),
                       child: ListenableBuilder(
-                        listenable: Listenable.merge([v.faces, v.selected]),
+                        listenable: Listenable.merge([v.faces, v.selected, v.markers]),
                         builder: (context, _) => CustomPaint(
                           size: Size.infinite,
-                          painter: _BoxPainter(v.faces.value, v.selected.value),
+                          painter: _BoxPainter(v.faces.value, v.selected.value, v.markers.value),
                         ),
                       ),
                     ),
@@ -89,11 +90,12 @@ class _CameraScreenState extends State<CameraScreen> {
             bottom: 8,
             child: ListenableBuilder(
               listenable: Listenable.merge(
-                  [s.videoOn, s.tracking, s.connected, v.stats, v.selected, v.faces]),
+                  [s.videoOn, s.tracking, s.aruco, s.connected, v.stats, v.selected, v.faces, v.markers]),
               builder: (context, _) => Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                 Text(
                   '${v.stats.value}\n얼굴 ${v.faces.value.length}개 · '
-                  '${s.tracking.value ? '추적 대상 id=${v.selected.value ?? '없음 (얼굴을 탭)'}' : '추적 꺼짐'}',
+                  '${s.tracking.value ? '추적 대상 id=${v.selected.value ?? '없음 (얼굴을 탭)'}' : '추적 꺼짐'}'
+                  '${s.aruco.value ? ' · 마커 ${v.markers.value.isEmpty ? '없음' : v.markers.value.map((m) => '#${m.id} ${m.sidePx.round()}px').join(', ')}' : ''}',
                   style: const TextStyle(color: Colors.white, fontSize: 12, shadows: [Shadow(blurRadius: 3)]),
                 ),
                 const SizedBox(height: 6),
@@ -110,6 +112,11 @@ class _CameraScreenState extends State<CameraScreen> {
                     selected: s.tracking.value,
                     onSelected: (on) => s.tracking.value = on,
                   ),
+                  FilterChip(
+                    label: const Text('마커 인식'),
+                    selected: s.aruco.value,
+                    onSelected: (on) => s.aruco.value = on,
+                  ),
                 ]),
               ]),
             ),
@@ -121,9 +128,10 @@ class _CameraScreenState extends State<CameraScreen> {
 }
 
 class _BoxPainter extends CustomPainter {
-  _BoxPainter(this.faces, this.selected);
+  _BoxPainter(this.faces, this.selected, this.markers);
   final List<FaceBox> faces;
   final int? selected;
+  final List<Marker> markers;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -148,8 +156,28 @@ class _BoxPainter extends CustomPainter {
         ..layout()
         ..paint(canvas, rect.topLeft + const Offset(4, 2));
     }
+    for (final m in markers) {
+      // 얼굴과 같이 x 를 뒤집어 그린다
+      final pts = [for (final c in m.corners) Offset((1 - c.dx) * size.width, c.dy * size.height)];
+      canvas.drawPath(
+          Path()..addPolygon(pts, true),
+          Paint()
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 3
+            ..color = Colors.amberAccent);
+      canvas.drawCircle(pts.first, 4, Paint()..color = Colors.amberAccent); // 마커 왼쪽 위 모서리
+      TextPainter(
+        text: TextSpan(
+            text: '#${m.id}',
+            style: const TextStyle(color: Colors.amberAccent, fontSize: 16, fontWeight: FontWeight.bold)),
+        textDirection: TextDirection.ltr,
+      )
+        ..layout()
+        ..paint(canvas, pts.reduce((a, b) => a.dy < b.dy ? a : b) + const Offset(0, -22));
+    }
   }
 
   @override
-  bool shouldRepaint(_BoxPainter old) => old.faces != faces || old.selected != selected;
+  bool shouldRepaint(_BoxPainter old) =>
+      old.faces != faces || old.selected != selected || old.markers != markers;
 }

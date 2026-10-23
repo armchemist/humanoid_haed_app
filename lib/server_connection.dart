@@ -26,12 +26,15 @@ const _defaultServerUrl =
 /// 중앙 서버(FastAPI)와의 통신. 앱 전체에서 하나만 만든다.
 ///
 /// - GET  /health          : 연결 확인
-/// - WS   /ws/phone        : 상태·제어 (hello, expression, state, track, video, status, track_result)
+/// - WS   /ws/phone        : 상태·제어 (hello, expression, state, track, video, aruco, status, track_result, aruco_result)
 /// - WS   /ws/phone/video  : JPEG 바이너리 프레임 (사용자가 켰거나 서버가 켰을 때)
 class Server {
   Server() {
     // 카메라/전송/추적 상태가 바뀔 때마다 서버에 status 를 보고한다.
-    Listenable.merge([cameraOn, videoOn, tracking]).addListener(sendStatus);
+    Listenable.merge([cameraOn, videoOn, tracking, aruco]).addListener(sendStatus);
+    aruco.addListener(() {
+      if (!aruco.value) arucoReport = false;
+    });
   }
 
   String baseUrl = _defaultServerUrl;
@@ -54,6 +57,12 @@ class Server {
 
   /// 얼굴 추적을 해야 하는가. 서버의 track start/stop 과 앱 UI 가 모두 이 값을 바꾼다.
   final tracking = ValueNotifier(false);
+  /// 폰에서 ArUco 마커를 찾아야 하는가. 서버의 aruco start/stop 과 앱 UI 가 모두 이 값을 바꾼다.
+  final aruco = ValueNotifier(false);
+
+  /// 마커 결과(aruco_result)를 서버로 보내는가. 서버가 aruco start 로 켰을 때만 true.
+  /// aruco_result 를 모르는 서버는 메시지마다 error 로 답하므로, 앱 UI 로 켰을 때는 화면에만 보인다.
+  bool arucoReport = false;
   final cameraOn = ValueNotifier(false); // Vision 이 갱신
   final videoOn = ValueNotifier(false);
 
@@ -149,7 +158,7 @@ class Server {
           onDone: () => _lost(ch, '서버가 연결을 닫음'),
           onError: (e) => _lost(ch, '$e'),
           cancelOnError: true);
-      send({'type': 'hello', 'device_id': deviceId, 'capabilities': ['camera', 'tracking', 'face']});
+      send({'type': 'hello', 'device_id': deviceId, 'capabilities': ['camera', 'tracking', 'face', 'aruco']});
       sendStatus();
       connected.value = true;
       status.value = '연결됨 $baseUrl';
@@ -194,6 +203,10 @@ class Server {
         if ((msg['target'] ?? 'face') == 'face') tracking.value = msg['action'] == 'start';
       case 'video':
         msg['action'] == 'start' ? startVideo() : stopVideo();
+      case 'aruco': // {"type":"aruco","action":"start"} → aruco_result 를 보내기 시작
+        final on = msg['action'] == 'start';
+        aruco.value = on;
+        arucoReport = on;
     }
   }
 
@@ -203,6 +216,7 @@ class Server {
         'type': 'status',
         'camera': videoOn.value ? 'streaming' : (cameraOn.value ? 'preview' : 'off'),
         'tracking': tracking.value,
+        'aruco': aruco.value,
       });
 
   // --- 영상 연결 ---------------------------------------------------------------

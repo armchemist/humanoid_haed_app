@@ -120,6 +120,14 @@ class _FaceScreenState extends State<FaceScreen> {
             ),
           ),
           ValueListenableBuilder(
+            valueListenable: s.aruco,
+            builder: (_, on, _) => FilterChip(
+              label: const Text('마커 인식'),
+              selected: on,
+              onSelected: (v) => s.aruco.value = v,
+            ),
+          ),
+          ValueListenableBuilder(
             valueListenable: s.videoOn,
             builder: (_, on, _) => FilterChip(
               label: const Text('영상 전송'),

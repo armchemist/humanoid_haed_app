@@ -47,3 +47,8 @@ kotlin {
 flutter {
     source = "../.."
 }
+
+dependencies {
+    // ArUco 마커 인식 (Aruco.kt). 서버와 같은 OpenCV 4 계열.
+    implementation("org.opencv:opencv:4.12.0")
+}

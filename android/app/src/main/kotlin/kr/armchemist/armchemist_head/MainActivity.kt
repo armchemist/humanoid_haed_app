@@ -12,6 +12,7 @@ import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 import java.io.ByteArrayOutputStream
+import java.util.concurrent.Executors
 
 class MainActivity : FlutterActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -40,7 +41,26 @@ class MainActivity : FlutterActivity() {
                     }
                 }.start()
             }
+        // 카메라 NV21 프레임 -> ArUco 마커 (Aruco.kt). 검출기를 한 스레드에서만 쓴다.
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "armchemist/aruco")
+            .setMethodCallHandler { call, result ->
+                val nv21 = call.argument<ByteArray>("nv21")!!
+                val w = call.argument<Int>("width")!!
+                val h = call.argument<Int>("height")!!
+                val rotation = call.argument<Int>("rotation")!!
+                arucoThread.execute {
+                    try {
+                        val found = aruco.detect(nv21, w, h, rotation)
+                        runOnUiThread { result.success(found) }
+                    } catch (e: Throwable) { // OpenCV 로드 실패(UnsatisfiedLinkError)도 Dart 로 넘긴다
+                        runOnUiThread { result.error("aruco", e.toString(), null) }
+                    }
+                }
+            }
     }
+
+    private val aruco = Aruco()
+    private val arucoThread = Executors.newSingleThreadExecutor()
 
     private fun encode(nv21: ByteArray, w: Int, h: Int, rotation: Int, maxSide: Int, quality: Int): ByteArray {
         val out = ByteArrayOutputStream()

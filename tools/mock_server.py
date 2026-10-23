@@ -11,6 +11,8 @@
 확인:
     curl -X POST localhost:8100/phone/phone1/expression -H "Content-Type: application/json" -d "{\"value\":\"danger\"}"
     curl -X POST localhost:8100/phone/phone1/track -H "Content-Type: application/json" -d "{\"action\":\"start\",\"target\":\"face\"}"
+    curl -X POST localhost:8100/phone/phone1/aruco -H "Content-Type: application/json" -d "{\"action\":\"start\"}"
+    curl localhost:8100/phone/phone1/state      (마지막 status, track_result, aruco_result)
     브라우저에서 http://<PC IP>:8100/latest.jpg  (마지막으로 받은 프레임)
 """
 
@@ -87,7 +89,7 @@ async def ws_video(ws: WebSocket):
 
 @app.get("/phone/{device}/state")
 def state(device: str):
-    """폰이 마지막으로 보낸 status 와 track_result."""
+    """폰이 마지막으로 보낸 status, track_result, aruco_result."""
     return {"connected": device in phones, **last.get(device, {})}
 
 
@@ -114,6 +116,12 @@ async def expression(device: str, body: dict):
 @app.post("/phone/{device}/track")
 async def track(device: str, body: dict):
     return await _send(device, {"type": "track", "action": body["action"], "target": body.get("target", "face")})
+
+
+@app.post("/phone/{device}/aruco")
+async def aruco(device: str, body: dict):
+    """폰에서 ArUco 마커를 찾아 aruco_result 를 보내게 한다. {"action": "start" | "stop"}"""
+    return await _send(device, {"type": "aruco", "action": body["action"]})
 
 
 if __name__ == "__main__":

@@ -11,12 +11,15 @@
 | `lib/server_connection.dart` | `GET /health`, `WS /ws/phone`, `WS /ws/phone/video`, 재연결, 영상 설정(FPS·크기·품질) |
 | `lib/face_screen.dart` | 얼굴/표정 (CustomPainter), 하단 상태 문구, 연결 표시, 설정 대화상자 |
 | `lib/camera_screen.dart` | 카메라 프리뷰, 얼굴 박스, 영상 전송/추적 토글 |
-| `lib/vision.dart` | 전면 카메라, ML Kit 얼굴 검출·추적, JPEG 송신 |
-| `android/.../MainActivity.kt` | NV21 → JPEG (Android `YuvImage`), 화면 꺼짐 방지 |
+| `lib/vision.dart` | 전면 카메라, ML Kit 얼굴 검출·추적, ArUco 마커 검출 호출, JPEG 송신 |
+| `lib/aruco.dart` | ArUco 결과 타입, `armchemist/aruco` 채널 호출, `aruco_result` 메시지 |
+| `android/.../MainActivity.kt` | NV21 → JPEG (Android `YuvImage`), 화면 꺼짐 방지, 채널 등록 |
+| `android/.../Aruco.kt` | NV21 Y 평면 → OpenCV `ArucoDetector` (`DICT_4X4_50`) |
 | `tools/mock_server.py` | 규약 테스트용 **목 서버** (실제 중앙 서버 아님) |
 | `test/protocol_test.dart` | 서버 규약 테스트 (실행 중인 서버 필요) |
 
 패키지: `camera`, `google_mlkit_face_detection`, `web_socket_channel`, `http`, `shared_preferences`.
+Android: `org.opencv:opencv:4.12.0` (Maven Central, ArUco 용. 네이티브 라이브러리가 arm64 기준 약 23MB 늘어난다 — 배포 시 `--split-per-abi`).
 
 ## 빌드·실행 (Windows)
 
@@ -66,6 +69,7 @@ curl http://127.0.0.1:8100/phone/phone1/frame -o f.jpg   # 마지막 카메라 �
 | `GET /status` | 폰 연결 여부, 마지막 `status`, `last_track` |
 | `POST /phone/{device_id}/expression` | `{"value": "danger"}` → 폰 표정이 즉시 바뀜 |
 | `POST /phone/{device_id}/track` | `{"action": "start", "target": "face"}` / `"stop"` |
+| `POST /phone/{device_id}/aruco` | `{"action": "start"}` / `"stop"` — **목 서버에만 있음** (아래 'ArUco 마커 인식') |
 | `GET /phone/{device_id}/frame` | 마지막 JPEG (앱에서 `영상 전송`을 켜야 함) |
 
 서버에 `API_KEY` 가 설정돼 있으면 각 엔드포인트의 `x-api-key` 칸에 넣는다.
@@ -97,8 +101,8 @@ flutter run -d emulator-5554     # 앱 서버 주소: http://10.0.2.2:8100
   **ID 일치는 '시약 일치 확인'일 뿐 파지 성공이 아니다.**
 - **설정(⚙)**: 서버 주소, device_id, 영상 FPS(기본 2)·긴 변 px(640)·JPEG 품질(70), 카메라 고해상도(1280x720, 다음 카메라 열 때 적용),
   연결되면 영상 전송 자동 시작.
-- **카메라 화면**: 전면 프리뷰, 얼굴 박스(초록 = 추적 대상), `영상 전송`, `얼굴 추적` 토글, 검출/전송 FPS.
-  얼굴을 탭하면 추적 대상으로 선택된다.
+- **카메라 화면**: 전면 프리뷰, 얼굴 박스(초록 = 추적 대상), ArUco 마커 테두리·ID(노랑, 점 = 마커 왼쪽 위 모서리),
+  `영상 전송`, `얼굴 추적`, `마커 인식` 토글, 검출/전송/마커 FPS. 얼굴을 탭하면 추적 대상으로 선택된다.
 
 ## 동작 메모
 
@@ -113,7 +117,27 @@ flutter run -d emulator-5554     # 앱 서버 주소: http://10.0.2.2:8100
 - 서버가 `video start` 를 보내면(웹 UI 버튼, `/verify/start`) 얼굴 화면을 유지한 채 카메라를 열어 JPEG 를 보낸다.
   얼굴 추적과 영상 전송은 같은 카메라 스트림을 쓰므로 카메라가 두 번 열리지 않는다.
 - 20mm ArUco 마커는 긴 변 640px 영상에서 약 30cm 이내여야 25px 이상으로 보인다. 더 멀면 고해상도·긴 변 px 를 올린다 (전송량·인코딩 시간 증가).
-- 카메라는 카메라 화면·추적·영상 전송 중 하나라도 켜져 있을 때만 열린다. 백그라운드로 가면 닫힌다.
+- 카메라는 카메라 화면·추적·마커 인식·영상 전송 중 하나라도 켜져 있을 때만 열린다. 백그라운드로 가면 닫힌다.
+
+## ArUco 마커 인식 (폰)
+
+중앙 서버(`central/aruco.py`)는 전송된 JPEG(긴 변 640px)에서 마커를 찾는다. 폰은 같은 사전(`DICT_4X4_50`)으로
+**카메라 원본 해상도**의 밝기(Y) 평면에서 직접 찾으므로, 영상 전송을 줄이거나 끄고도 작은 마커를 읽을 수 있다.
+
+- 켜기: 카메라 화면/수동 테스트 패널의 `마커 인식`, 또는 서버 → 폰 `{"type": "aruco", "action": "start"|"stop"}`.
+- 최대 ~5 FPS, 겹쳐 실행하지 않음. 1280x720 프레임에서 에뮬레이터 기준 약 25ms.
+- **`aruco_result` 는 서버가 `aruco start` 로 켰을 때만 보낸다.** 현재 중앙 서버는 이 type 을 모르고 `error` 로 답하므로,
+  앱 UI 로 켰을 때는 화면에만 표시한다. 중앙 서버에서 쓰려면 `ws_phone` 에 `aruco_result` 처리를 추가할 것.
+
+```json
+{"type": "aruco_result", "dictionary": "DICT_4X4_50", "ids": [3],
+ "markers": [{"id": 3, "corners": [[0.156, 0.125], [0.267, 0.125], [0.267, 0.273], [0.156, 0.273]], "side_px": 71.0}],
+ "size": [480, 640], "ms": 7.8, "ts": 1760500000.0}
+```
+
+키는 서버 `Detector.detect()` 결과와 같다 (`ids` 정렬·중복 제거, `markers` 큰 것부터). 다른 점: `corners` 는 px 가 아니라
+전송 JPEG 과 같은 0~1 정규화 좌표(회전 보정, 미러 아님, 왼쪽 위부터 시계 방향), `side_px`·`size` 는 검출 해상도 기준.
+`status` 메시지에 `"aruco": true|false` 가 추가되고 `hello.capabilities` 에 `"aruco"` 가 들어간다.
 
 ## 보안 주의 (POC 전용)
 

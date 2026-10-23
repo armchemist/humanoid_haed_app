@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart';
 
+import 'aruco.dart';
 import 'server_connection.dart';
 
 /// 얼굴 하나. box 는 0~1 정규화 좌표이고, 서버로 보내는 JPEG 과 같은 기준이다
@@ -12,13 +13,17 @@ import 'server_connection.dart';
 typedef FaceBox = ({int? id, Rect box});
 
 const _detectIntervalMs = 150; // 얼굴 검출 최대 ~6 FPS
+const _arucoIntervalMs = 200; // 마커 검출 최대 ~5 FPS
 // 영상 전송 FPS·크기·품질은 Server 의 설정(videoFps, videoMaxSide, videoQuality)을 쓴다.
 
-/// 전면 카메라 하나를 열어 두고, 같은 프레임 스트림으로 얼굴 검출과 영상 전송을 한다.
-/// 카메라는 필요할 때만 연다: 카메라 화면이 열렸거나, 추적 중이거나, 영상 전송 중.
+/// 전면 카메라 하나를 열어 두고, 같은 프레임 스트림으로 얼굴 검출·마커 검출·영상 전송을 한다.
+/// 카메라는 필요할 때만 연다: 카메라 화면이 열렸거나, 추적 중이거나, 마커 인식 중이거나, 영상 전송 중.
 class Vision {
   Vision(this.server) {
-    Listenable.merge([server.tracking, server.videoOn]).addListener(sync);
+    Listenable.merge([server.tracking, server.aruco, server.videoOn]).addListener(sync);
+    server.aruco.addListener(() {
+      if (!server.aruco.value) markers.value = const [];
+    });
     server.tracking.addListener(() {
       if (!server.tracking.value) {
         selected.value = null;
@@ -33,6 +38,7 @@ class Vision {
   final faces = ValueNotifier<List<FaceBox>>(const []);
   final selected = ValueNotifier<int?>(null); // 추적 대상 trackingId
   final target = ValueNotifier<Offset?>(null); // 얼굴 화면 시선용 (미러된 화면 좌표)
+  final markers = ValueNotifier<List<Marker>>(const []);
   final stats = ValueNotifier('');
 
   bool _previewOpen = false;
@@ -42,13 +48,14 @@ class Vision {
       options: FaceDetectorOptions(enableTracking: true, performanceMode: FaceDetectorMode.fast));
   static const _jpeg = MethodChannel('armchemist/jpeg');
 
-  bool _detecting = false, _encoding = false;
-  var _lastDetect = DateTime(0), _lastSend = DateTime(0), _statsAt = DateTime.now();
-  int _detected = 0, _sent = 0;
+  bool _detecting = false, _encoding = false, _findingMarkers = false;
+  var _lastDetect = DateTime(0), _lastSend = DateTime(0), _lastAruco = DateTime(0), _statsAt = DateTime.now();
+  int _detected = 0, _sent = 0, _arucoFrames = 0;
+  double _arucoMs = 0;
   Future<void> _op = Future.value();
 
   bool get _needed =>
-      !_paused && (_previewOpen || server.tracking.value || server.videoOn.value);
+      !_paused && (_previewOpen || server.tracking.value || server.aruco.value || server.videoOn.value);
 
   set previewOpen(bool v) {
     _previewOpen = v;
@@ -98,6 +105,7 @@ class Vision {
     camera.value = null;
     server.cameraOn.value = false;
     faces.value = const [];
+    markers.value = const [];
     target.value = null;
     try {
       await c.stopImageStream();
@@ -134,6 +142,13 @@ class Vision {
       _lastDetect = now;
       _detect(nv21, img.width, img.height, rot).whenComplete(() => _detecting = false);
     }
+    if (server.aruco.value &&
+        !_findingMarkers &&
+        now.difference(_lastAruco).inMilliseconds >= _arucoIntervalMs) {
+      _findingMarkers = true;
+      _lastAruco = now;
+      _detectMarkers(nv21, img.width, img.height, rot).whenComplete(() => _findingMarkers = false);
+    }
     if (server.videoOn.value &&
         !_encoding &&
         now.difference(_lastSend).inMilliseconds >= 1000 ~/ server.videoFps) {
@@ -145,8 +160,10 @@ class Vision {
     final dt = now.difference(_statsAt).inMilliseconds;
     if (dt >= 1000) {
       stats.value = '검출 ${(_detected * 1000 / dt).toStringAsFixed(1)} fps · '
-          '전송 ${(_sent * 1000 / dt).toStringAsFixed(1)} fps · ${img.width}x${img.height}';
-      _detected = _sent = 0;
+          '전송 ${(_sent * 1000 / dt).toStringAsFixed(1)} fps · '
+          '${server.aruco.value ? '마커 ${(_arucoFrames * 1000 / dt).toStringAsFixed(1)} fps ${_arucoMs.round()} ms · ' : ''}'
+          '${img.width}x${img.height}';
+      _detected = _sent = _arucoFrames = 0;
       _statsAt = now;
     }
   }
@@ -197,6 +214,19 @@ class Vision {
       if (server.tracking.value) _report();
     } catch (e) {
       debugPrint('face detect failed: $e');
+    }
+  }
+
+  Future<void> _detectMarkers(Uint8List nv21, int w, int h, int rot) async {
+    try {
+      final f = await detectMarkers(nv21, w, h, rot);
+      if (!server.aruco.value) return; // 기다리는 사이 꺼짐
+      markers.value = f.markers;
+      _arucoFrames++;
+      _arucoMs = f.ms;
+      if (server.arucoReport) server.send(arucoResultMessage(f, DateTime.now().microsecondsSinceEpoch / 1e6));
+    } catch (e) {
+      debugPrint('aruco detect failed: $e');
     }
   }
 
